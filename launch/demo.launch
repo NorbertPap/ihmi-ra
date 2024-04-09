@@ -1,0 +1,18 @@
+<launch>
+  <!-- Robot namespace -->
+  <arg name="robot_name" default="my_gen3_lite"/>
+  <arg name="start_delay_seconds" default="0"/>
+  <!-- <node pkg="p6" type="demo.py" name="demo" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' " /> -->
+  <node pkg="p6" type="arm_handling_node.py" name="arm_handler" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' " />
+</launch>
+
+<!-- <launch>
+
+    Robot namespace
+    <arg name="robot_name" default="my_gen3_lite"/>
+    <arg name="start_delay_seconds" default="0"/>
+
+    Launch the example in that namespace
+    <node name="demo_node" pkg="p6" type="demo.py" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' "/>
+
+</launch> -->

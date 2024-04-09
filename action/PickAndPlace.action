@@ -1,0 +1,10 @@
+# PickAndPlace.action
+# Goal
+geometry_msgs/Point object
+geometry_msgs/Point location
+---
+# Result
+bool success
+---
+# Feedback
+string current_state
