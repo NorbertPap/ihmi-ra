@@ -4,6 +4,7 @@
   <arg name="start_delay_seconds" default="0"/>
   <!-- <node pkg="p6" type="demo.py" name="demo" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' " /> -->
   <node pkg="p6" type="arm_handling_node.py" name="arm_handler" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' " />
+  <!-- <node pkg="p6" type="pick_and_place.py" name="arm_handler" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' " /> -->
 </launch>
 
 <!-- <launch>
