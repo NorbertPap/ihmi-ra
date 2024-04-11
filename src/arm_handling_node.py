@@ -15,7 +15,7 @@ class ArmHandlingNode:
     def __init__(self):
         # Create the MoveItInterface necessary objects
         self.arm_group = MoveGroupCommander("arm", ns=rospy.get_namespace())
-        self.arm_group.set_end_effector_link("end_effector")
+        self.arm_group.set_end_effector_link("end_effector_link")
         self.robot = RobotCommander("robot_description")
         self.scene = PlanningSceneInterface(ns=rospy.get_namespace())
         self.display_trajectory_publisher = rospy.Publisher(rospy.get_namespace() + 'move_group/display_planned_path',
@@ -56,6 +56,7 @@ class ArmHandlingNode:
 
     def get_pose_from_xyz_rpy(self, x, y, z, ro, pi, ya):
         pose = PoseStamped()
+        pose.header.frame_id = "base_link"
         position = pose.pose.position
         position.x = x
         position.y = y
@@ -106,26 +107,26 @@ class ArmHandlingNode:
 
         collision_object = self.create_collision_object('cylinder', object_pose.pose, [1, 0.02])
         self.scene.add_object(collision_object)
-        # self.arm_group.attach_object('cylinder', link_name='end_effector_link', touch_links=['gripper_base_link', 'upper_wrist_link', 'lower_wrist_link', 'forearm_link', 'arm_link'])
         self.arm_group.attach_object('cylinder', link_name='end_effector_link', touch_links=self.robot.get_link_names("arm") + self.robot.get_link_names("gripper"))
 
         grasp = moveit_msgs.msg.Grasp()
         grasp.max_contact_force = 1
-        grasp.grasp_pose = object_pose
-        grasp.grasp_pose.header.frame_id = "world"
-        grasp.pre_grasp_approach.direction.header.frame_id = "world"
+        grasp.grasp_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, np.pi/2, 0)
+        grasp.grasp_pose.header.frame_id = "base_link"
+        grasp.pre_grasp_approach.direction.header.frame_id = "base_link"
         grasp.pre_grasp_approach.direction.vector.z = -1.0
         grasp.pre_grasp_approach.min_distance = 0.15
         grasp.pre_grasp_approach.desired_distance = 0.2
-        grasp.post_grasp_retreat.direction.header.frame_id = "world"
+        grasp.post_grasp_retreat.direction.header.frame_id = "base_link"
         grasp.post_grasp_retreat.direction.vector.z = 1.0
         grasp.post_grasp_retreat.min_distance = 0.15
         grasp.post_grasp_retreat.desired_distance = 0.2
+        grasp.allowed_touch_objects = ['cylinder']
 
         rospy.loginfo("Picking object...")
         # self.arm_group.allow_replanning(True)
         # self.arm_group.attach_object('cylinder')
-        self.arm_group.pick('cylinder')
+        self.arm_group.pick('cylinder', grasp)
         rospy.loginfo("Object picked")
 
         place = moveit_msgs.msg.PlaceLocation()
@@ -143,7 +144,7 @@ class ArmHandlingNode:
         # self.arm_group.place('ball', place)
         # rospy.loginfo("Object placed")
 
-        self.scene.remove_attached_object('end_effector_link', 'cylinder')
+        self.arm_group.detach_object('cylinder')
         self.scene.remove_world_object('cylinder')
 
         self.pick_and_place_server.set_succeeded()
