@@ -15,6 +15,7 @@ class ArmHandlingNode:
     def __init__(self):
         # Create the MoveItInterface necessary objects
         self.arm_group = MoveGroupCommander("arm", ns=rospy.get_namespace())
+        self.arm_group.set_end_effector_link("end_effector")
         self.robot = RobotCommander("robot_description")
         self.scene = PlanningSceneInterface(ns=rospy.get_namespace())
         self.display_trajectory_publisher = rospy.Publisher(rospy.get_namespace() + 'move_group/display_planned_path',
@@ -103,21 +104,28 @@ class ArmHandlingNode:
         object_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, 0, 0)
         place_pose = self.get_pose_from_xyz_rpy(goal.location.x, goal.location.y, goal.location.z + 0.1, 0, 0, 0)
 
+        collision_object = self.create_collision_object('cylinder', object_pose.pose, [1, 0.02])
+        self.scene.add_object(collision_object)
+        # self.arm_group.attach_object('cylinder', link_name='end_effector_link', touch_links=['gripper_base_link', 'upper_wrist_link', 'lower_wrist_link', 'forearm_link', 'arm_link'])
+        self.arm_group.attach_object('cylinder', link_name='end_effector_link', touch_links=self.robot.get_link_names("arm") + self.robot.get_link_names("gripper"))
+
         grasp = moveit_msgs.msg.Grasp()
         grasp.max_contact_force = 1
         grasp.grasp_pose = object_pose
-        grasp.grasp_pose.header.frame_id = "base_link"
-        grasp.pre_grasp_approach.direction.header.frame_id = "base_link"
+        grasp.grasp_pose.header.frame_id = "world"
+        grasp.pre_grasp_approach.direction.header.frame_id = "world"
         grasp.pre_grasp_approach.direction.vector.z = -1.0
         grasp.pre_grasp_approach.min_distance = 0.15
         grasp.pre_grasp_approach.desired_distance = 0.2
-        grasp.post_grasp_retreat.direction.header.frame_id = "base_link"
+        grasp.post_grasp_retreat.direction.header.frame_id = "world"
         grasp.post_grasp_retreat.direction.vector.z = 1.0
         grasp.post_grasp_retreat.min_distance = 0.15
         grasp.post_grasp_retreat.desired_distance = 0.2
 
         rospy.loginfo("Picking object...")
-        self.arm_group.pick('object', grasp)
+        # self.arm_group.allow_replanning(True)
+        # self.arm_group.attach_object('cylinder')
+        self.arm_group.pick('cylinder')
         rospy.loginfo("Object picked")
 
         place = moveit_msgs.msg.PlaceLocation()
@@ -131,42 +139,40 @@ class ArmHandlingNode:
         place.post_place_retreat.min_distance = 0.15
         place.post_place_retreat.desired_distance = 0.2
 
-        rospy.loginfo("Placing object...")
-        self.arm_group.place('object', place)
-        rospy.loginfo("Object placed")
+        # rospy.loginfo("Placing object...")
+        # self.arm_group.place('ball', place)
+        # rospy.loginfo("Object placed")
+
+        self.scene.remove_attached_object('end_effector_link', 'cylinder')
+        self.scene.remove_world_object('cylinder')
 
         self.pick_and_place_server.set_succeeded()
 
-def set_scene(arm_handler):
-    # Create a collision object
-    collision_object = CollisionObject()
-    collision_object.header.frame_id = arm_handler.arm_group.get_planning_frame()
-    collision_object.id = 'object'
+    def create_collision_object(self, id, pose, dimensions):
+        object = CollisionObject()
+        object.id = id
+        object.header.frame_id = self.arm_group.get_planning_frame()
 
-    # Define the shape and pose of the object
-    primitive = SolidPrimitive()
-    primitive.type = primitive.BOX
-    primitive.dimensions = [0.1, 0.1, 0.1]  # size of the box (1x1x1)
-    collision_object.primitives = [primitive]
+        solid = SolidPrimitive()
+        solid.type = solid.CYLINDER
+        solid.dimensions = dimensions
+        object.primitives = [solid]
 
-    object_pose = Pose()
-    object_pose.orientation.w = 1.0
-    object_pose.position.x = 0.3
-    object_pose.position.y = 0.3
-    object_pose.position.z = 0.3
-    collision_object.primitive_poses = [object_pose]
+        object_pose = pose
 
-    arm_handler.scene.add_object(collision_object)
+        object.primitive_poses = [object_pose]
+        object.operation = object.ADD
+        return object
+
 
 if __name__ == '__main__':
     rospy.init_node('arm_handling_node')
     server = ArmHandlingNode()
-    set_scene(server)
     # server.scan_area()
     action = PickAndPlaceAction()
-    action.action_goal.goal.object.x = 0.3
-    action.action_goal.goal.object.y = 0.3
-    action.action_goal.goal.object.z = 0.3
+    action.action_goal.goal.object.x = 0.373830
+    action.action_goal.goal.object.y = 0.080918
+    action.action_goal.goal.object.z = 0.449900
     action.action_goal.goal.location.x = 0.4
     action.action_goal.goal.location.y = 0.4
     action.action_goal.goal.location.z = 0.3
