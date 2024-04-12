@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   actionlib_msgs
   geometry_msgs
   moveit_msgs
+  trajectory_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -114,7 +115,7 @@ catkin_package(
 #  LIBRARIES p6
 #  CATKIN_DEPENDS roscpp rospy std_msgs
 #  DEPENDS system_lib
-  CATKIN_DEPENDS actionlib_msgs moveit_msgs
+  CATKIN_DEPENDS actionlib_msgs moveit_msgs trajectory_msgs
 )
 
 ###########

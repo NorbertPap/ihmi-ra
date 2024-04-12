@@ -8,6 +8,7 @@ import moveit_msgs.msg
 from moveit_msgs.msg import CollisionObject
 from geometry_msgs.msg import PoseStamped, Pose
 from shape_msgs.msg import SolidPrimitive
+from trajectory_msgs.msg import JointTrajectoryPoint
 from p6.msg import ScanAreaAction, PickAndPlaceAction
 import tf.transformations as tf_trans
 
@@ -52,7 +53,13 @@ class ArmHandlingNode:
             val = gripper_joint.move(relative_position * (gripper_max_absolute_pos - gripper_min_absolute_pos) + gripper_min_absolute_pos, True)
             return val
         except:
-            return False 
+            return False
+        
+    def get_gripper_absolute_position(self, relative_position):
+        gripper_joint = self.robot.get_joint(self.gripper_joint_name)
+        gripper_max_absolute_pos = gripper_joint.max_bound()
+        gripper_min_absolute_pos = gripper_joint.min_bound()
+        return relative_position * (gripper_max_absolute_pos - gripper_min_absolute_pos) + gripper_min_absolute_pos
 
     def get_pose_from_xyz_rpy(self, x, y, z, ro, pi, ya):
         pose = PoseStamped()
@@ -111,16 +118,33 @@ class ArmHandlingNode:
 
         grasp = moveit_msgs.msg.Grasp()
         grasp.max_contact_force = 1
-        grasp.grasp_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, np.pi/2, 0)
+
+        grasp.grasp_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, np.pi, 0)
         grasp.grasp_pose.header.frame_id = "base_link"
+
         grasp.pre_grasp_approach.direction.header.frame_id = "base_link"
         grasp.pre_grasp_approach.direction.vector.z = -1.0
         grasp.pre_grasp_approach.min_distance = 0.15
         grasp.pre_grasp_approach.desired_distance = 0.2
+
+        grasp.pre_grasp_posture.header.frame_id = "end_effector_link"
+        grasp.pre_grasp_posture.joint_names = [self.gripper_joint_name]
+        grasp.pre_grasp_posture.points.append(JointTrajectoryPoint())
+        grasp.pre_grasp_posture.points[0].positions = [self.get_gripper_absolute_position(1)]
+        grasp.pre_grasp_posture.points[0].time_from_start = rospy.Duration(0.5)
+
+        grasp.grasp_posture.header.frame_id = "end_effector_link"
+        grasp.grasp_posture.joint_names = [self.gripper_joint_name]
+        grasp.grasp_posture.points.append(JointTrajectoryPoint())
+        grasp.grasp_posture.points[0].positions = [self.get_gripper_absolute_position(0.0)]
+        grasp.grasp_posture.points[0].effort = [1]
+        grasp.grasp_posture.points[0].time_from_start = rospy.Duration(0.5)
+
         grasp.post_grasp_retreat.direction.header.frame_id = "base_link"
         grasp.post_grasp_retreat.direction.vector.z = 1.0
         grasp.post_grasp_retreat.min_distance = 0.15
         grasp.post_grasp_retreat.desired_distance = 0.2
+
         grasp.allowed_touch_objects = ['cylinder']
 
         rospy.loginfo("Picking object...")
@@ -171,9 +195,9 @@ if __name__ == '__main__':
     server = ArmHandlingNode()
     # server.scan_area()
     action = PickAndPlaceAction()
-    action.action_goal.goal.object.x = 0.373830
-    action.action_goal.goal.object.y = 0.080918
-    action.action_goal.goal.object.z = 0.449900
+    action.action_goal.goal.object.x = 0.075319
+    action.action_goal.goal.object.y = 0.290744
+    action.action_goal.goal.object.z = 0.180736
     action.action_goal.goal.location.x = 0.4
     action.action_goal.goal.location.y = 0.4
     action.action_goal.goal.location.z = 0.3
