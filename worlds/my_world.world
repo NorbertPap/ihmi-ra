@@ -1,0 +1,345 @@
+<?xml version="1.0" ?>
+<sdf version="1.5">
+  <world name="default">
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+
+    <model name="box_with_walls_A">
+      <pose>0.2 0.5 0 0 0 0</pose>
+
+      <!-- Bottom -->
+      <link name="bottom">
+        <pose>0 0 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.025</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.025</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 1 -->
+      <link name="wall_1">
+        <pose>-0.08725 0 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 2 -->
+      <link name="wall_2">
+        <pose>0.08725 0 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 3 -->
+      <link name="wall_3">
+        <pose>0 -0.08725 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 4 -->
+      <link name="wall_4">
+        <pose>0 0.08725 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Joints -->
+      <joint name="bottom_wall_1_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_1</child>
+      </joint>
+
+      <joint name="bottom_wall_2_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_2</child>
+      </joint>
+
+      <joint name="bottom_wall_3_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_3</child>
+      </joint>
+
+      <joint name="bottom_wall_4_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_4</child>
+      </joint>
+    </model>
+
+    <model name="box_with_walls_B">
+      <pose>-0.2 0.5 0 0 0 0</pose>
+
+      <!-- Bottom -->
+      <link name="bottom">
+        <pose>0 0 0 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.025</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.2 0.025</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 1 -->
+      <link name="wall_1">
+        <pose>-0.08725 0 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 2 -->
+      <link name="wall_2">
+        <pose>0.08725 0 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.025 0.2 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 3 -->
+      <link name="wall_3">
+        <pose>0 -0.08725 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Wall 4 -->
+      <link name="wall_4">
+        <pose>0 0.08725 0.0875 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.2 0.025 0.15</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+
+      <!-- Joints -->
+      <joint name="bottom_wall_1_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_1</child>
+      </joint>
+
+      <joint name="bottom_wall_2_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_2</child>
+      </joint>
+
+      <joint name="bottom_wall_3_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_3</child>
+      </joint>
+
+      <joint name="bottom_wall_4_joint" type="fixed">
+        <parent>bottom</parent>
+        <child>wall_4</child>
+      </joint>
+    </model>
+
+
+    <model name="tennis_ball1">
+      <pose>0.1 0.35 0.035 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </visual>
+        <inertial>
+          <mass>0.06</mass>
+        </inertial>
+      </link>
+    </model>
+
+    <model name="tennis_ball2">
+      <pose>-0.1 0.35 0.035 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </visual>
+        <inertial>
+          <mass>0.06</mass>
+        </inertial>
+      </link>
+    </model>
+
+    <model name="tennis_ball3">
+      <pose>0 0.35 0.035 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </visual>
+        <inertial>
+          <mass>0.06</mass>
+        </inertial>
+      </link>
+    </model>
+
+
+    <!-- <model name="cylinder">
+      <pose>0 -1.5 0.5 0 1.5707 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1.0</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1.0</length>
+            </cylinder>
+          </geometry>
+        </visual>
+      </link>
+    </model> -->
+  </world>
+</sdf>
