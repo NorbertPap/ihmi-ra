@@ -113,13 +113,14 @@ class ArmHandlingNode:
         place_pose = self.get_pose_from_xyz_rpy(goal.location.x, goal.location.y, goal.location.z + 0.1, 0, 0, 0)
 
         collision_object = self.create_collision_object('cylinder', object_pose.pose, [1, 0.02])
-        self.scene.add_object(collision_object)
+        # self.scene.add_object(collision_object)
+        self.scene.add_cylinder('cylinder', object_pose, 1, 0.03)
         self.arm_group.attach_object('cylinder', link_name='end_effector_link', touch_links=self.robot.get_link_names("arm") + self.robot.get_link_names("gripper"))
 
         grasp = moveit_msgs.msg.Grasp()
         grasp.max_contact_force = 1
 
-        grasp.grasp_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, np.pi, 0)
+        grasp.grasp_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, np.pi/2, 0)
         grasp.grasp_pose.header.frame_id = "base_link"
 
         grasp.pre_grasp_approach.direction.header.frame_id = "base_link"
@@ -136,9 +137,9 @@ class ArmHandlingNode:
         grasp.grasp_posture.header.frame_id = "end_effector_link"
         grasp.grasp_posture.joint_names = [self.gripper_joint_name]
         grasp.grasp_posture.points.append(JointTrajectoryPoint())
-        grasp.grasp_posture.points[0].positions = [self.get_gripper_absolute_position(0.0)]
+        grasp.grasp_posture.points[0].positions = [self.get_gripper_absolute_position(0.2)]
         grasp.grasp_posture.points[0].effort = [1]
-        grasp.grasp_posture.points[0].time_from_start = rospy.Duration(0.5)
+        grasp.grasp_posture.points[0].time_from_start = rospy.Duration(0.4)
 
         grasp.post_grasp_retreat.direction.header.frame_id = "base_link"
         grasp.post_grasp_retreat.direction.vector.z = 1.0
@@ -188,18 +189,77 @@ class ArmHandlingNode:
         object.primitive_poses = [object_pose]
         object.operation = object.ADD
         return object
+    
+    def create_tennis_ball(self, id, pose):
+        object = CollisionObject()
+        object.id = id
+        object.header.frame_id = self.arm_group.get_planning_frame()
+
+        solid = SolidPrimitive()
+        solid.type = solid.SPHERE
+        solid.dimensions = [0.035]
+        object.primitives = [solid]
+
+        object.primitive_poses = [pose]
+        object.operation = object.ADD
+        return object
+    
+    def create_box(self, id, pose):
+        object = CollisionObject()
+        object.id = id
+        object.header.frame_id = self.arm_group.get_planning_frame()
+
+        solid = SolidPrimitive()
+        solid.type = solid.BOX
+        solid.dimensions = [0.2, 0.2, 0.175]
+        object.primitives = [solid]
+
+        object_pose = pose
+
+        object.primitive_poses = [object_pose]
+        object.operation = object.ADD
+        return object
+    
+    def set_the_scene(self):
+        tennis_ball_1 = self.create_tennis_ball('tennis_ball1', self.get_pose_from_xyz_rpy(0.1, 0.35, 0.035, 0, 0, 0).pose)
+        tennis_ball_2 = self.create_tennis_ball('tennis_ball2', self.get_pose_from_xyz_rpy(0.0, 0.35, 0.035, 0, 0, 0).pose)
+        tennis_ball_3 = self.create_tennis_ball('tennis_ball3', self.get_pose_from_xyz_rpy(-0.1, 0.35, 0.035, 0, 0, 0).pose)
+        box_A = self.create_box('box_with_walls_A', self.get_pose_from_xyz_rpy(0.2, 0.5, 0.0875, 0, 0, 0).pose)
+        box_B = self.create_box('box_with_walls_B', self.get_pose_from_xyz_rpy(-0.2, 0.5, 0.0875, 0, 0, 0).pose)
+        self.scene.add_object(tennis_ball_1)
+        self.scene.add_object(tennis_ball_2)
+        self.scene.add_object(tennis_ball_3)
+        self.scene.add_object(box_A)
+        self.scene.add_object(box_B)
 
 
 if __name__ == '__main__':
     rospy.init_node('arm_handling_node')
     server = ArmHandlingNode()
+    server.set_the_scene()
     # server.scan_area()
-    action = PickAndPlaceAction()
-    action.action_goal.goal.object.x = 0.075319
-    action.action_goal.goal.object.y = 0.290744
-    action.action_goal.goal.object.z = 0.180736
-    action.action_goal.goal.location.x = 0.4
-    action.action_goal.goal.location.y = 0.4
-    action.action_goal.goal.location.z = 0.3
-    server.pick_and_place(action.action_goal.goal)
+    # action = PickAndPlaceAction()
+    # action.action_goal.goal.object.x = 0.075319
+    # action.action_goal.goal.object.y = 0.290744
+    # action.action_goal.goal.object.z = 0.5
+    # action.action_goal.goal.location.x = 0.4
+    # action.action_goal.goal.location.y = 0.4
+    # action.action_goal.goal.location.z = 0.3
+    # server.pick_and_place(action.action_goal.goal)
+
+    # server.reach_cartesian_pose(server.get_pose_from_xyz_rpy(0, 0.35, 0.2, np.pi, 0, 0))
+
+    arm_group = server.arm_group
+    server.arm_group.attach_object('tennis_ball2', link_name='end_effector_link')
+    server.reach_gripper_position(0.7)
+    arm_group.set_joint_value_target([-1.7789422557452337, 0.5557483356470527, -1.7313943976828678, -1.5442874257575543, 0.8456311348001027, -0.21382284220865833]) # almost grabbing
+    arm_group.go(wait=True)
+    arm_group.set_joint_value_target([-1.7766088053169735, 0.6525358609551581, -1.762790101435268, -1.5416014810317904, 0.7175798601998045, -0.21642575960469612]) # grabbing
+    arm_group.go(wait=True)
+    server.reach_gripper_position(0.56)
+    
+    arm_group.set_joint_value_target([1.8342356734062477, -0.10681195813735034, 0.8543174765239172, -1.5545036836367894, -2.163119937459122, 1.857624550919922]) # looking down
+    arm_group.go(wait=True)
+
+
     rospy.spin()
