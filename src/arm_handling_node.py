@@ -9,6 +9,7 @@ from moveit_msgs.msg import CollisionObject
 from geometry_msgs.msg import PoseStamped, Pose
 from shape_msgs.msg import SolidPrimitive
 from trajectory_msgs.msg import JointTrajectoryPoint
+from sensor_msgs.msg import JointState
 from p6.msg import ScanAreaAction, PickAndPlaceAction
 import tf.transformations as tf_trans
 
@@ -30,6 +31,7 @@ class ArmHandlingNode:
         self.pick_and_place_server = actionlib.SimpleActionServer('pick_and_place', PickAndPlaceAction, self.pick_and_place, False)
         self.scan_area_server.start()
         self.pick_and_place_server.start()
+        self.grasp_subscriber = None
 
     def get_cartesian_pose(self):
         arm_group = self.arm_group
@@ -44,16 +46,36 @@ class ArmHandlingNode:
         arm_group.set_pose_target(pose)
         return arm_group.go(wait=True)
     
-    def reach_gripper_position(self, relative_position):
+    def reach_gripper_position(self, relative_position, wait = True):
         # We only have to move this joint because all others are mimic!
         gripper_joint = self.robot.get_joint(self.gripper_joint_name)
         gripper_max_absolute_pos = gripper_joint.max_bound()
         gripper_min_absolute_pos = gripper_joint.min_bound()
         try:
-            val = gripper_joint.move(relative_position * (gripper_max_absolute_pos - gripper_min_absolute_pos) + gripper_min_absolute_pos, True)
+            val = gripper_joint.move(relative_position * (gripper_max_absolute_pos - gripper_min_absolute_pos) + gripper_min_absolute_pos, wait)
             return val
         except:
             return False
+
+    def grasp(self):
+        print("Grasping object")
+        try:
+            print("Closing gripper completely")
+            self.grasp_subscriber = rospy.Subscriber("/my_gen3_lite/joint_states", JointState, self.gripper_joint_states_callback)
+            val = self.reach_gripper_position(0, True)
+            return val
+        except:
+            return False
+
+    def gripper_joint_states_callback(self, data):
+        print(f'Gripper joint states: {data.effort[6]}')
+        if(abs(data.effort[6]) > 0.1):
+            closed_position = data.position[6]
+            rospy.loginfo("Gripper closed at position: " + str(closed_position))
+            gripper_joint = self.robot.get_joint(self.gripper_joint_name)
+            gripper_joint.move(closed_position, True)
+            self.grasp_subscriber.unregister()
+            self.grasp_subscriber = None
         
     def get_gripper_absolute_position(self, relative_position):
         gripper_joint = self.robot.get_joint(self.gripper_joint_name)
@@ -250,16 +272,21 @@ if __name__ == '__main__':
     # server.reach_cartesian_pose(server.get_pose_from_xyz_rpy(0, 0.35, 0.2, np.pi, 0, 0))
 
     arm_group = server.arm_group
-    server.arm_group.attach_object('tennis_ball2', link_name='end_effector_link')
+    arm_group.allow_replanning(True)
     server.reach_gripper_position(0.7)
+    # print(arm_group.get_current_joint_values())
+    server.arm_group.attach_object('tennis_ball2', link_name='right_finger_dist_link')
+    
     arm_group.set_joint_value_target([-1.7789422557452337, 0.5557483356470527, -1.7313943976828678, -1.5442874257575543, 0.8456311348001027, -0.21382284220865833]) # almost grabbing
     arm_group.go(wait=True)
     arm_group.set_joint_value_target([-1.7766088053169735, 0.6525358609551581, -1.762790101435268, -1.5416014810317904, 0.7175798601998045, -0.21642575960469612]) # grabbing
     arm_group.go(wait=True)
-    server.reach_gripper_position(0.56)
-    
-    arm_group.set_joint_value_target([1.8342356734062477, -0.10681195813735034, 0.8543174765239172, -1.5545036836367894, -2.163119937459122, 1.857624550919922]) # looking down
+    server.grasp()
+    # server.reach_gripper_position(0.56)
+    # arm_group.set_joint_value_target([1.8342356734062477, -0.10681195813735034, 0.8543174765239172, -1.5545036836367894, -2.163119937459122, 1.857624550919922]) # looking down
+    # arm_group.go(wait=True)
+    arm_group.set_joint_value_target([0.8617535422236493, -0.2984684098336672, 1.2771823912654794, 0.005754851522628002, -0.7369024330701333, 0.010736561257947752]) # looking above box
     arm_group.go(wait=True)
-
+    server.reach_gripper_position(0.7)
 
     rospy.spin()
