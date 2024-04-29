@@ -251,20 +251,28 @@
 
 
     <model name="tennis_ball1">
-      <pose>0.1 0.35 0.035 0 0 0</pose>
+      <pose>0.1 0.35 0.025 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
-            <sphere>
-              <radius>0.035</radius>
-            </sphere>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
           </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>100.0</mu>
+                <mu2>100.0</mu2>
+              </ode>
+            </friction>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry>
-            <sphere>
-              <radius>0.035</radius>
-            </sphere>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
           </geometry>
         </visual>
         <inertial>
@@ -274,20 +282,28 @@
     </model>
 
     <model name="tennis_ball2">
-      <pose>-0.1 0.35 0.035 0 0 0</pose>
+      <pose>-0.1 0.35 0.025 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
-            <sphere>
-              <radius>0.035</radius>
-            </sphere>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
           </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>100.0</mu>
+                <mu2>100.0</mu2>
+              </ode>
+            </friction>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry>
-            <sphere>
-              <radius>0.035</radius>
-            </sphere>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
           </geometry>
         </visual>
         <inertial>
@@ -297,20 +313,28 @@
     </model>
 
     <model name="tennis_ball3">
-      <pose>0 0.35 0.035 0 0 0</pose>
+      <pose>0 0.35 0.025 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
-            <sphere>
-              <radius>0.035</radius>
-            </sphere>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
           </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>100.0</mu>
+                <mu2>100.0</mu2>
+              </ode>
+            </friction>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry>
-            <sphere>
-              <radius>0.035</radius>
-            </sphere>
+            <box>
+              <size>0.05 0.05 0.05</size>
+            </box>
           </geometry>
         </visual>
         <inertial>

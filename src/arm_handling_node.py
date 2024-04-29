@@ -5,7 +5,8 @@ import actionlib
 import numpy as np
 from moveit_commander import MoveGroupCommander, RobotCommander, PlanningSceneInterface
 import moveit_msgs.msg
-from moveit_msgs.msg import CollisionObject
+from moveit_msgs.msg import CollisionObject, PositionIKRequest, RobotState
+from moveit_msgs.srv import GetPositionIK
 from geometry_msgs.msg import PoseStamped, Pose
 from shape_msgs.msg import SolidPrimitive
 from trajectory_msgs.msg import JointTrajectoryPoint
@@ -32,18 +33,53 @@ class ArmHandlingNode:
         self.scan_area_server.start()
         self.pick_and_place_server.start()
         self.grasp_subscriber = None
+        self.poses = {'pre_grasp': {
+            'tennis_ball3': [1.719397670855674, -0.37333796563798316, 1.1480589423163279, -1.5512216011486712, -1.6184193665201825, 1.7093838222433422],
+            'tennis_ball1': [1.4621943361296612, -0.39949488261506527, 1.1822399614392927, -1.551553583329822, -1.541284271903372, 1.4683210537520188],
+            'tennis_ball2': [2.0359015926088553, -0.7001293993934592, 1.6228026660037917, -1.5757445328693178, -0.8222334495398576, 2.0285886602426797]
+        }, 'grasp': {
+            'tennis_ball3': [1.752853294926652, -0.7016125141214289, 1.6917573301975652, -1.540532750218083, -0.7462672902188947, 1.7206148048574659],
+            'tennis_ball1': [1.4645398269322332, -0.6753798879100028, 1.6185939694013536, -1.5436089253880212, -0.8294487134368262, 1.453250586362636],
+            'tennis_ball2': [2.0414828625790875, -0.7000550466485844, 1.621314322252199, -1.584253389913048, -0.8271538827803981, 2.0397546188127893]
+        }, 'above_box': {
+            'box_A': [0.8617535422236493, -0.2984684098336672, 1.2771823912654794, 0.005754851522628002, -0.7369024330701333, 0.010736561257947752],
+            'box_B': [2.151555623414035, -0.1726417936390341, 1.8279398715736015, 2.547322387557106, -0.6864933296066082, -2.405678718595867]
+        }}
+        rospy.wait_for_service(rospy.get_namespace() + 'compute_ik')
+        self.compute_ik_service = rospy.ServiceProxy(rospy.get_namespace() + 'compute_ik', GetPositionIK)
 
     def get_cartesian_pose(self):
         arm_group = self.arm_group
         pose = arm_group.get_current_pose()
         return pose.pose
+    
+    def get_ik_solution(self, pose):
+        # Specify the desired position and orientation of the end effector
+        pose_stamped = PoseStamped()
+        pose_stamped.header.frame_id = "base_link"  # Replace with your base frame
+        pose_stamped.pose = pose
+
+        # Create an empty RobotState and fill it with the current state
+        robot_state = arm_group.get_current_state()
+        robot_state.joint_state.name = robot_state.joint_state.name[0:6]
+        robot_state.joint_state.position = arm_group.get_current_joint_values()[0:6]
+
+        # Create a PositionIKRequest object and fill it with the desired pose
+        ik_request = PositionIKRequest()
+        ik_request.group_name = "arm"  # Replace with your group name
+        ik_request.robot_state = robot_state
+        ik_request.pose_stamped = pose_stamped
+        ik_request.timeout.secs = 5
+
+        # Call the service and get the response
+        response = self.compute_ik_service(ik_request)
+
+        # The response contains the calculated joint values
+        return response.solution.joint_state.position[0:6]
 
     def reach_cartesian_pose(self, pose, tolerance = 0, constraints = None):
-        arm_group = self.arm_group
-        arm_group.set_goal_position_tolerance(tolerance)
-        if constraints is not None:
-            arm_group.set_path_constraints(constraints)
-        arm_group.set_pose_target(pose)
+        ik_solution = self.get_ik_solution(pose)
+        arm_group.set_joint_value_target(ik_solution)
         return arm_group.go(wait=True)
     
     def reach_gripper_position(self, relative_position, wait = True):
@@ -56,26 +92,6 @@ class ArmHandlingNode:
             return val
         except:
             return False
-
-    def grasp(self):
-        print("Grasping object")
-        try:
-            print("Closing gripper completely")
-            self.grasp_subscriber = rospy.Subscriber("/my_gen3_lite/joint_states", JointState, self.gripper_joint_states_callback)
-            val = self.reach_gripper_position(0, True)
-            return val
-        except:
-            return False
-
-    def gripper_joint_states_callback(self, data):
-        print(f'Gripper joint states: {data.effort[6]}')
-        if(abs(data.effort[6]) > 0.1):
-            closed_position = data.position[6]
-            rospy.loginfo("Gripper closed at position: " + str(closed_position))
-            gripper_joint = self.robot.get_joint(self.gripper_joint_name)
-            gripper_joint.move(closed_position, True)
-            self.grasp_subscriber.unregister()
-            self.grasp_subscriber = None
         
     def get_gripper_absolute_position(self, relative_position):
         gripper_joint = self.robot.get_joint(self.gripper_joint_name)
@@ -218,8 +234,9 @@ class ArmHandlingNode:
         object.header.frame_id = self.arm_group.get_planning_frame()
 
         solid = SolidPrimitive()
-        solid.type = solid.SPHERE
-        solid.dimensions = [0.035]
+        # solid.type = solid.SPHERE
+        solid.type = solid.BOX
+        solid.dimensions = [0.05, 0.05, 0.05]
         object.primitives = [solid]
 
         object.primitive_poses = [pose]
@@ -244,8 +261,8 @@ class ArmHandlingNode:
     
     def set_the_scene(self):
         tennis_ball_1 = self.create_tennis_ball('tennis_ball1', self.get_pose_from_xyz_rpy(0.1, 0.35, 0.035, 0, 0, 0).pose)
-        tennis_ball_2 = self.create_tennis_ball('tennis_ball2', self.get_pose_from_xyz_rpy(0.0, 0.35, 0.035, 0, 0, 0).pose)
-        tennis_ball_3 = self.create_tennis_ball('tennis_ball3', self.get_pose_from_xyz_rpy(-0.1, 0.35, 0.035, 0, 0, 0).pose)
+        tennis_ball_2 = self.create_tennis_ball('tennis_ball2', self.get_pose_from_xyz_rpy(-0.1, 0.35, 0.035, 0, 0, 0).pose)
+        tennis_ball_3 = self.create_tennis_ball('tennis_ball3', self.get_pose_from_xyz_rpy(0.0, 0.35, 0.035, 0, 0, 0).pose)
         box_A = self.create_box('box_with_walls_A', self.get_pose_from_xyz_rpy(0.2, 0.5, 0.0875, 0, 0, 0).pose)
         box_B = self.create_box('box_with_walls_B', self.get_pose_from_xyz_rpy(-0.2, 0.5, 0.0875, 0, 0, 0).pose)
         self.scene.add_object(tennis_ball_1)
@@ -254,42 +271,47 @@ class ArmHandlingNode:
         self.scene.add_object(box_A)
         self.scene.add_object(box_B)
 
+    def pick(self, obj):
+        self.reach_gripper_position(0.7)
+        self.arm_group.set_joint_value_target(self.poses['pre_grasp'][obj])
+        self.arm_group.go(wait=True)
+        self.arm_group.set_joint_value_target(self.poses['grasp'][obj])
+        self.arm_group.go(wait=True)
+        self.arm_group.attach_object(obj, link_name='right_finger_dist_link', touch_links=['end_effector_link', 'right_finger_prox_link', 'right_finger_dist_link', 'left_finger_prox_link', 'left_finger_dist_link'])
+        self.reach_gripper_position(0.3)
+
+    def place(self, obj, location):
+        self.arm_group.set_joint_value_target(self.poses['above_box'][location])
+        self.arm_group.go(wait=True)
+        self.reach_gripper_position(0.8)
+        self.arm_group.detach_object(obj)
+
+
 
 if __name__ == '__main__':
     rospy.init_node('arm_handling_node')
     server = ArmHandlingNode()
     server.set_the_scene()
-    # server.scan_area()
-    # action = PickAndPlaceAction()
-    # action.action_goal.goal.object.x = 0.075319
-    # action.action_goal.goal.object.y = 0.290744
-    # action.action_goal.goal.object.z = 0.5
-    # action.action_goal.goal.location.x = 0.4
-    # action.action_goal.goal.location.y = 0.4
-    # action.action_goal.goal.location.z = 0.3
-    # server.pick_and_place(action.action_goal.goal)
-
-    # server.reach_cartesian_pose(server.get_pose_from_xyz_rpy(0, 0.35, 0.2, np.pi, 0, 0))
-
     arm_group = server.arm_group
     arm_group.allow_replanning(True)
     server.reach_gripper_position(0.7)
-    # print(arm_group.get_current_joint_values())
-    server.arm_group.attach_object('tennis_ball2', link_name='right_finger_dist_link')
-    
-    arm_group.set_joint_value_target([-1.7789422557452337, 0.5557483356470527, -1.7313943976828678, -1.5442874257575543, 0.8456311348001027, -0.21382284220865833]) # almost grabbing
-    arm_group.go(wait=True)
-    arm_group.set_joint_value_target([-1.7766088053169735, 0.6525358609551581, -1.762790101435268, -1.5416014810317904, 0.7175798601998045, -0.21642575960469612]) # grabbing
-    arm_group.go(wait=True)
-    server.arm_group.attach_object('tennis_ball2', link_name='', touch_links=['end_effector_link', 'right_finger_prox_link', 'right_finger_dist_link', 'left_finger_prox_link', 'left_finger_dist_link'])
-    server.reach_gripper_position(0.55)
-    # # server.grasp()
-    # server.reach_gripper_position(0.56)
-    # server.reach_gripper_position(0.60)
-    # arm_group.set_joint_value_target([1.8342356734062477, -0.10681195813735034, 0.8543174765239172, -1.5545036836367894, -2.163119937459122, 1.857624550919922]) # looking down
+    server.reach_cartesian_pose(server.get_pose_from_xyz_rpy(0.1, 0.35, 0.1, 0, np.pi, 0).pose)
+    # arm_group.set_joint_value_target(ik_solution[0:6])
     # arm_group.go(wait=True)
-    # arm_group.set_joint_value_target([0.8617535422236493, -0.2984684098336672, 1.2771823912654794, 0.005754851522628002, -0.7369024330701333, 0.010736561257947752]) # looking above box
-    # arm_group.go(wait=True)
+    # server.reach_gripper_position(0.35)
+
+    # server.scan_area()
+
     # server.reach_gripper_position(0.7)
+    # arm_group.set_joint_value_target(server.poses['pre_grasp']['tennis_ball2'])
+    # arm_group.go(wait=True)
+
+    # arm_group.set_joint_value_target(server.poses['grasp']['tennis_ball3'])
+    # arm_group.go(wait=True)
+
+    # server.pick('tennis_ball3')
+    # server.place('tennis_ball3', 'box_A')
+    # server.pick('tennis_ball2')
+    # server.place('tennis_ball2', 'box_B')
 
     rospy.spin()
