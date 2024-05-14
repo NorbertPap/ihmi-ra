@@ -11,8 +11,10 @@ from geometry_msgs.msg import PoseStamped, Pose
 from shape_msgs.msg import SolidPrimitive
 from trajectory_msgs.msg import JointTrajectoryPoint
 from sensor_msgs.msg import JointState
-from p6.msg import ScanAreaAction, PickAndPlaceAction
+from p6.msg import ScanAreaAction, ScanAreaResult, ScanAreaGoal, ScanAreaFeedback, PickAndPlaceAction, PickAndPlaceActionGoal
 import tf.transformations as tf_trans
+from kortex_driver.srv import *
+from kortex_driver.msg import *
 
 class ArmHandlingNode:
     def __init__(self):
@@ -27,8 +29,7 @@ class ArmHandlingNode:
         
         gripper_joint_names = rospy.get_param(rospy.get_namespace() + "gripper_joint_names", [])
         self.gripper_joint_name = gripper_joint_names[0]
-        
-        self.scan_area_server = actionlib.SimpleActionServer('scan_area', ScanAreaAction, self.scan_area, False)
+        self.scan_area_server = actionlib.SimpleActionServer('scan_area', ScanAreaAction, execute_cb=self.scan_area_cb, auto_start=False)
         self.pick_and_place_server = actionlib.SimpleActionServer('pick_and_place', PickAndPlaceAction, self.pick_and_place, False)
         self.scan_area_server.start()
         self.pick_and_place_server.start()
@@ -36,6 +37,10 @@ class ArmHandlingNode:
         
         rospy.wait_for_service(rospy.get_namespace() + 'compute_ik')
         self.compute_ik_service = rospy.ServiceProxy(rospy.get_namespace() + 'compute_ik', GetPositionIK)
+
+        send_gripper_command_full_name = '/my_gen3_lite/base/send_gripper_command'
+        rospy.wait_for_service(send_gripper_command_full_name)
+        self.gripper_command_interface = rospy.ServiceProxy(send_gripper_command_full_name, SendGripperCommand)
         
         self.poses = {'pre_grasp': {
             'tennis_ball3': [0.0, 0.35, 0.1],
@@ -49,6 +54,24 @@ class ArmHandlingNode:
             'box_A': [0.8617535422236493, -0.2984684098336672, 1.2771823912654794, 0.005754851522628002, -0.7369024330701333, 0.010736561257947752],
             'box_B': [2.151555623414035, -0.1726417936390341, 1.8279398715736015, 2.547322387557106, -0.6864933296066082, -2.405678718595867]
         }}
+
+    def scan_area_cb(self, goal):
+        scan_coverage_ratio = goal.scan_coverage_ratio
+        try:
+            self.scan_area(scan_coverage_ratio, self.publish_scan_area_feedback)
+        except Exception as e:
+            rospy.logerr("Failed to scan the area")
+            result.success = False
+            self.scan_area_server.set_succeeded(result)
+            return
+        result = ScanAreaResult()
+        result.success = True
+        self.scan_area_server.set_succeeded(result)
+
+    def publish_scan_area_feedback(self, status_text):
+        feedback = ScanAreaFeedback()
+        feedback.status_text = status_text
+        self.scan_area_server.publish_feedback(feedback)
 
     def get_cartesian_pose(self):
         arm_group = self.arm_group
@@ -79,9 +102,16 @@ class ArmHandlingNode:
         # The response contains the calculated joint values
         return response.solution.joint_state.position[0:6]
 
-    def reach_cartesian_pose(self, pose):
-        ik_solution = self.get_ik_solution(pose)
-        arm_group.set_joint_value_target(ik_solution)
+    def reach_cartesian_pose(self, pose, cartesian_path = False, constraints = None):
+        # if pose is PoseStamped, get the Pose
+        if isinstance(pose, PoseStamped):
+            pose = pose.pose
+        if cartesian_path:
+            self.arm_group.set_pose_target(pose)
+        else:
+            ik_solution = self.get_ik_solution(pose)
+            self.arm_group.set_joint_value_target(ik_solution)
+        self.arm_group.set_path_constraints(constraints)
         return arm_group.go(wait=True)
     
     def reach_gripper_position(self, relative_position, wait = True):
@@ -118,35 +148,103 @@ class ArmHandlingNode:
         orientation.w = quat[3]
 
         return pose
+    
+    def print_current_pose(self):
+        current_pose = self.get_cartesian_pose()
+        current_position = current_pose.position
+        current_quaternion = current_pose.orientation
+        current_rpy = tf_trans.euler_from_quaternion([current_quaternion.x, current_quaternion.y, current_quaternion.z, current_quaternion.w])
+        current_rpy = [angle*180/np.pi for angle in current_rpy]
+        current_rpy = [f'roll: {current_rpy[0]}', f'pitch: {current_rpy[1]}', f'yaw: {current_rpy[2]}']
+        print('Current pose: ' + str(current_position) + ' ' + str(current_rpy))
 
-    def scan_area(self, goal = None):
-        rospy.loginfo("Scanning area")
-        rospy.loginfo("Going to home")
+    def create_scanning_constraint(self):
+        # Create a constraint for the end effector to remain within a small volume
+        constraint = moveit_msgs.msg.Constraints()
+        position_constraint = moveit_msgs.msg.PositionConstraint()
+        position_constraint.header.frame_id = "base_link"
+        position_constraint.link_name = "end_effector_link"
+        position_constraint.weight = 1.0
+        position_constraint.target_point_offset.x = 0.0
+        position_constraint.target_point_offset.y = 0.0
+        position_constraint.target_point_offset.z = 0.0
+        position_constraint.constraint_region.primitive_poses.append(self.get_cartesian_pose())
+        sphere = SolidPrimitive()
+        sphere.type = sphere.SPHERE
+        sphere.dimensions = [0.1]
+        position_constraint.constraint_region.primitives.append(sphere)
+        constraint.position_constraints.append(position_constraint)
+        
+        return constraint
+
+    def apply_pitch(self, pose, pitch):
+        if isinstance(pose, PoseStamped):
+            pose = pose.pose
+        orientation_quaternion = pose.orientation
+        # Convert the quaternion to a transformation matrix
+        current_matrix = tf_trans.quaternion_matrix([orientation_quaternion.x, orientation_quaternion.y, orientation_quaternion.z, orientation_quaternion.w])
+        # Apply the pitch
+        pitch_matrix = tf_trans.rotation_matrix(pitch, [0, 1, 0])
+        new_matrix = np.dot(current_matrix, pitch_matrix)
+        new_orientation = tf_trans.quaternion_from_matrix(new_matrix)
+        pose.orientation.x = new_orientation[0]
+        pose.orientation.y = new_orientation[1]
+        pose.orientation.z = new_orientation[2]
+        pose.orientation.w = new_orientation[3]
+        return pose
+    
+    def apply_extrinsic_rotation(self, pose, angle, rotation):
+        if isinstance(pose, PoseStamped):
+            pose = pose.pose
+        axis = [0, 0, 0]
+        if rotation == 'roll':
+            axis[0] = 1
+        elif rotation == 'pitch':
+            axis[1] = 1
+        elif rotation == 'yaw':
+            axis[2] = 1
+        quaternion = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+        current_matrix = tf_trans.quaternion_matrix(quaternion)
+        extrinsic_rotation_matrix = tf_trans.rotation_matrix(angle, axis)
+        new_matrix = np.dot(current_matrix, extrinsic_rotation_matrix)
+        new_orientation = tf_trans.quaternion_from_matrix(new_matrix)
+        pose.orientation.x = new_orientation[0]
+        pose.orientation.y = new_orientation[1]
+        pose.orientation.z = new_orientation[2]
+        pose.orientation.w = new_orientation[3]
+        return pose
+
+
+    def scan_area(self, scan_coverage_ratio, feedback_cb = lambda msg: rospy.loginfo(msg)):
+        feedback_cb("Starting scanning...")
+        feedback_cb("Moving to home position")
         self.arm_group.set_named_target('home')
-        (success_flag, trajectory_message, planning_time, error_code) = self.arm_group.plan()
-        self.arm_group.execute(trajectory_message, wait=True)
-        rospy.loginfo("Reached home")
+        self.arm_group.go(wait=True)
+        feedback_cb("Reached home")
 
         home_pose = self.get_cartesian_pose()
+        self.arm_group.set_path_constraints(self.create_scanning_constraint())
         euler_angles = tf_trans.euler_from_quaternion([home_pose.orientation.x, home_pose.orientation.y, home_pose.orientation.z, home_pose.orientation.w])
+        turn_angle = 2 * np.pi * scan_coverage_ratio / 2
 
-        rospy.loginfo("Going left")
+        feedback_cb("Going left")
         pose_left = self.get_pose_from_xyz_rpy(home_pose.position.x, home_pose.position.y, home_pose.position.z, 
-                                                euler_angles[0]+0.1, euler_angles[1], euler_angles[2] + 0.2)
-        self.reach_cartesian_pose(pose_left, 0.01)
-        rospy.loginfo("Reached left")
+                                                euler_angles[0], euler_angles[1], euler_angles[2] + turn_angle)
+        pose_left = self.apply_pitch(pose_left, np.pi/8)
+        self.reach_cartesian_pose(pose_left, cartesian_path=True)
+        feedback_cb("Reached left")
 
-        rospy.loginfo("Going right")
+        feedback_cb("Going right")
         pose_right = self.get_pose_from_xyz_rpy(home_pose.position.x, home_pose.position.y, home_pose.position.z, 
-                                                euler_angles[0]+0.1, euler_angles[1], euler_angles[2] - 0.2)
-        self.reach_cartesian_pose(pose_right, 0.01)
-        rospy.loginfo("Reached right")
+                                                euler_angles[0], euler_angles[1], euler_angles[2] - turn_angle)
+        pose_right = self.apply_pitch(pose_right, np.pi/8)
+        self.reach_cartesian_pose(pose_right, cartesian_path=True)
+        feedback_cb("Reached right")
 
-        # Return to home pose
-        rospy.loginfo("Going home")
-        self.reach_cartesian_pose(home_pose, 0.01)
-        rospy.loginfo("Reached home")
-        self.scan_area_server.set_succeeded()
+        feedback_cb("Going center")
+        looking_down = self.apply_pitch(home_pose, np.pi/8)
+        self.reach_cartesian_pose(looking_down, cartesian_path=True)
+        feedback_cb("Reached center")
 
     def pick_and_place(self, goal):
         object_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, 0, 0)
@@ -287,6 +385,28 @@ class ArmHandlingNode:
         self.reach_gripper_position(0.8)
         self.arm_group.detach_object(obj)
 
+    def send_gripper_command(self, value):
+        # Initialize the request
+        # Close the gripper
+        req = SendGripperCommandRequest()
+        finger = Finger()
+        finger.finger_identifier = 0
+        finger.value = value
+        req.input.gripper.finger.append(finger)
+        req.input.mode = GripperMode.GRIPPER_POSITION
+
+        rospy.loginfo("Sending the gripper command...")
+
+        # Call the service 
+        try:
+            self.gripper_command_interface(req)
+        except rospy.ServiceException:
+            rospy.logerr("Failed to call SendGripperCommand")
+            return False
+        else:
+            rospy.sleep(0.5)
+            return True
+
 
 
 if __name__ == '__main__':
@@ -297,9 +417,15 @@ if __name__ == '__main__':
     arm_group = server.arm_group
     arm_group.allow_replanning(True)
 
-    server.pick('tennis_ball3')
-    server.place('tennis_ball3', 'box_A')
-    server.pick('tennis_ball1')
-    server.place('tennis_ball1', 'box_B')
+    server.scan_area(0.25)
+
+    # server.pick('tennis_ball3')
+    # server.place('tennis_ball3', 'box_A')
+    # server.pick('tennis_ball1')
+    # server.place('tennis_ball1', 'box_B')
+    # server.pick('tennis_ball2')
+    # server.place('tennis_ball2', 'box_B')
+
+    # server.send_gripper_command(5)
 
     rospy.spin()

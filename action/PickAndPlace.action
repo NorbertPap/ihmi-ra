@@ -1,7 +1,7 @@
 # PickAndPlace.action
 # Goal
-geometry_msgs/Point object
-geometry_msgs/Point location
+geometry_msgs/Point object_to_pick
+geometry_msgs/Point location_to_place
 ---
 # Result
 bool success

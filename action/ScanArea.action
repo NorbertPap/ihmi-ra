@@ -1,5 +1,9 @@
-# Empty goal
+# ScanArea.action
+# Goal definition
+float64 scan_coverage_ratio
 ---
-# Empty result
+# Result definition
+bool success
 ---
-# Empty feedback
+# Feedback definition
+string progress_info
