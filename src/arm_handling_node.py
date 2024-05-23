@@ -13,8 +13,8 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from sensor_msgs.msg import JointState
 from p6.msg import ScanAreaAction, ScanAreaResult, ScanAreaGoal, ScanAreaFeedback, PickAndPlaceAction, PickAndPlaceActionGoal
 import tf.transformations as tf_trans
-from kortex_driver.srv import *
-from kortex_driver.msg import *
+from kortex_driver.srv import SendGripperCommand, SendGripperCommandRequest
+from kortex_driver.msg import Finger, GripperMode
 
 class ArmHandlingNode:
     def __init__(self):
@@ -169,10 +169,13 @@ class ArmHandlingNode:
         position_constraint.target_point_offset.y = 0.0
         position_constraint.target_point_offset.z = 0.0
         position_constraint.constraint_region.primitive_poses.append(self.get_cartesian_pose())
+
         sphere = SolidPrimitive()
         sphere.type = sphere.SPHERE
         sphere.dimensions = [0.1]
+
         position_constraint.constraint_region.primitives.append(sphere)
+        
         constraint.position_constraints.append(position_constraint)
         
         return constraint
@@ -193,27 +196,14 @@ class ArmHandlingNode:
         pose.orientation.w = new_orientation[3]
         return pose
     
-    def apply_extrinsic_rotation(self, pose, angle, rotation):
-        if isinstance(pose, PoseStamped):
-            pose = pose.pose
-        axis = [0, 0, 0]
-        if rotation == 'roll':
-            axis[0] = 1
-        elif rotation == 'pitch':
-            axis[1] = 1
-        elif rotation == 'yaw':
-            axis[2] = 1
-        quaternion = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
-        current_matrix = tf_trans.quaternion_matrix(quaternion)
-        extrinsic_rotation_matrix = tf_trans.rotation_matrix(angle, axis)
-        new_matrix = np.dot(current_matrix, extrinsic_rotation_matrix)
-        new_orientation = tf_trans.quaternion_from_matrix(new_matrix)
-        pose.orientation.x = new_orientation[0]
-        pose.orientation.y = new_orientation[1]
-        pose.orientation.z = new_orientation[2]
-        pose.orientation.w = new_orientation[3]
-        return pose
-
+    def get_orientation_from_rpy(self, roll, pitch, yaw):
+        orientation = tf_trans.quaternion_from_euler(roll, pitch, yaw)
+        quaternion = Pose().orientation
+        quaternion.x = orientation[0]
+        quaternion.y = orientation[1]
+        quaternion.z = orientation[2]
+        quaternion.w = orientation[3]
+        return quaternion
 
     def scan_area(self, scan_coverage_ratio, feedback_cb = lambda msg: rospy.loginfo(msg)):
         feedback_cb("Starting scanning...")
@@ -223,27 +213,37 @@ class ArmHandlingNode:
         feedback_cb("Reached home")
 
         home_pose = self.get_cartesian_pose()
-        self.arm_group.set_path_constraints(self.create_scanning_constraint())
+        constraints = self.create_scanning_constraint()
         euler_angles = tf_trans.euler_from_quaternion([home_pose.orientation.x, home_pose.orientation.y, home_pose.orientation.z, home_pose.orientation.w])
         turn_angle = 2 * np.pi * scan_coverage_ratio / 2
 
         feedback_cb("Going left")
-        pose_left = self.get_pose_from_xyz_rpy(home_pose.position.x, home_pose.position.y, home_pose.position.z, 
-                                                euler_angles[0], euler_angles[1], euler_angles[2] + turn_angle)
+        pose_left = self.get_pose_from_xyz_rpy(
+            home_pose.position.x,
+            home_pose.position.y,
+            home_pose.position.z, 
+            euler_angles[0],
+            euler_angles[1],
+            euler_angles[2] + turn_angle)
         pose_left = self.apply_pitch(pose_left, np.pi/8)
-        self.reach_cartesian_pose(pose_left, cartesian_path=True)
+        self.reach_cartesian_pose(pose_left, cartesian_path=True, constraints=constraints)
         feedback_cb("Reached left")
 
         feedback_cb("Going right")
-        pose_right = self.get_pose_from_xyz_rpy(home_pose.position.x, home_pose.position.y, home_pose.position.z, 
-                                                euler_angles[0], euler_angles[1], euler_angles[2] - turn_angle)
+        pose_right = self.get_pose_from_xyz_rpy(
+            home_pose.position.x,
+            home_pose.position.y,
+            home_pose.position.z, 
+            euler_angles[0],
+            euler_angles[1],
+            euler_angles[2] - turn_angle)
         pose_right = self.apply_pitch(pose_right, np.pi/8)
-        self.reach_cartesian_pose(pose_right, cartesian_path=True)
+        self.reach_cartesian_pose(pose_right, cartesian_path=True, constraints=constraints)
         feedback_cb("Reached right")
 
         feedback_cb("Going center")
         looking_down = self.apply_pitch(home_pose, np.pi/8)
-        self.reach_cartesian_pose(looking_down, cartesian_path=True)
+        self.reach_cartesian_pose(looking_down, cartesian_path=True, constraints=constraints)
         feedback_cb("Reached center")
 
     def pick_and_place(self, goal):
@@ -417,10 +417,10 @@ if __name__ == '__main__':
     arm_group = server.arm_group
     arm_group.allow_replanning(True)
 
-    server.scan_area(0.25)
+    # server.scan_area(0.25)
 
-    # server.pick('tennis_ball3')
-    # server.place('tennis_ball3', 'box_A')
+    server.pick('tennis_ball3')
+    server.place('tennis_ball3', 'box_A')
     # server.pick('tennis_ball1')
     # server.place('tennis_ball1', 'box_B')
     # server.pick('tennis_ball2')
