@@ -20,6 +20,7 @@ class ArmHandlingNode:
     def __init__(self):
         # Create the MoveItInterface necessary objects
         self.arm_group = MoveGroupCommander("arm", ns=rospy.get_namespace())
+        self.arm_group.allow_replanning(True)
         self.arm_group.set_end_effector_link("end_effector_link")
         self.robot = RobotCommander("robot_description")
         self.scene = PlanningSceneInterface(ns=rospy.get_namespace())
@@ -41,19 +42,21 @@ class ArmHandlingNode:
         send_gripper_command_full_name = '/my_gen3_lite/base/send_gripper_command'
         rospy.wait_for_service(send_gripper_command_full_name)
         self.gripper_command_interface = rospy.ServiceProxy(send_gripper_command_full_name, SendGripperCommand)
-        
-        self.poses = {'pre_grasp': {
-            'tennis_ball3': [0.0, 0.35, 0.1],
-            'tennis_ball1': [0.1, 0.35, 0.1],
-            'tennis_ball2': [-0.1, 0.35, 0.1]
-        }, 'grasp': {
-            'tennis_ball3': [0.0, 0.35, 0.04],
-            'tennis_ball1': [0.1, 0.35, 0.04],
-            'tennis_ball2': [-0.1, 0.35, 0.04]
-        }, 'above_box': {
-            'box_A': [0.8617535422236493, -0.2984684098336672, 1.2771823912654794, 0.005754851522628002, -0.7369024330701333, 0.010736561257947752],
-            'box_B': [2.151555623414035, -0.1726417936390341, 1.8279398715736015, 2.547322387557106, -0.6864933296066082, -2.405678718595867]
-        }}
+
+        self.locations = {
+            'tennis_ball1': [0.1, 0.35, 0.025],
+            'tennis_ball2': [-0.1, 0.35, 0.025],
+            'tennis_ball3': [0.0, 0.35, 0.025],
+            'box_A': [0.2, 0.5, 0.0875],
+            'box_B': [-0.2, 0.5, 0.0875]
+        }
+        self.sizes = {
+            'tennis_ball1': [0.05, 0.05, 0.05],
+            'tennis_ball2': [0.05, 0.05, 0.05],
+            'tennis_ball3': [0.05, 0.05, 0.05],
+            'box_A': [0.2, 0.2, 0.175],
+            'box_B': [0.2, 0.2, 0.175]
+        }
 
     def scan_area_cb(self, goal):
         scan_coverage_ratio = goal.scan_coverage_ratio
@@ -112,7 +115,7 @@ class ArmHandlingNode:
             ik_solution = self.get_ik_solution(pose)
             self.arm_group.set_joint_value_target(ik_solution)
         self.arm_group.set_path_constraints(constraints)
-        return arm_group.go(wait=True)
+        return self.arm_group.go(wait=True)
     
     def reach_gripper_position(self, relative_position, wait = True):
         # We only have to move this joint because all others are mimic!
@@ -139,7 +142,7 @@ class ArmHandlingNode:
         position.y = y
         position.z = z
 
-        quat = tf_trans.quaternion_from_euler(ro, pi, ya)
+        quat = tf_trans.quaternion_from_euler(ro, pi, ya, axes='rxyz')
 
         orientation = pose.pose.orientation
         orientation.x = quat[0]
@@ -197,7 +200,7 @@ class ArmHandlingNode:
         return pose
     
     def get_orientation_from_rpy(self, roll, pitch, yaw):
-        orientation = tf_trans.quaternion_from_euler(roll, pitch, yaw)
+        orientation = tf_trans.quaternion_from_euler(roll, pitch, yaw, axes='rxyz')
         quaternion = Pose().orientation
         quaternion.x = orientation[0]
         quaternion.y = orientation[1]
@@ -371,17 +374,34 @@ class ArmHandlingNode:
         self.scene.add_object(box_A)
         self.scene.add_object(box_B)
 
+    def attach_object(self, obj):
+        self.arm_group.attach_object(obj, link_name='end_effector_link',
+                                     touch_links=['end_effector_link',
+                                                  'right_finger_prox_link',
+                                                  'right_finger_dist_link',
+                                                  'left_finger_prox_link',
+                                                  'left_finger_dist_link'])
+
     def pick(self, obj):
         orientation_rpy = [0, np.pi, 0]
         self.reach_gripper_position(0.7)
-        self.reach_cartesian_pose(self.get_pose_from_xyz_rpy(*self.poses['pre_grasp'][obj], *orientation_rpy).pose)
-        self.reach_cartesian_pose(self.get_pose_from_xyz_rpy(*self.poses['grasp'][obj], *orientation_rpy).pose)
-        self.arm_group.attach_object(obj, link_name='right_finger_dist_link', touch_links=['end_effector_link', 'right_finger_prox_link', 'right_finger_dist_link', 'left_finger_prox_link', 'left_finger_dist_link'])
+
+        pre_grasp_pose = self.get_pose_from_xyz_rpy(*self.locations[obj], *orientation_rpy).pose
+        pre_grasp_pose.position.z += 0.1 # 10 cm above the object
+        self.reach_cartesian_pose(pre_grasp_pose)
+
+        grasp_pose = self.get_pose_from_xyz_rpy(*self.locations[obj], *orientation_rpy).pose
+        grasp_pose.position.z  = np.max([grasp_pose.position.z, 0.04]) # grasp object at its center, a minimum of 4cm along the z-axis to avoid collision with the ground
+        self.reach_cartesian_pose(grasp_pose)
+
+        self.attach_object(obj)
         self.reach_gripper_position(0.45)
 
     def place(self, obj, location):
-        self.arm_group.set_joint_value_target(self.poses['above_box'][location])
-        self.arm_group.go(wait=True)
+        place_pose = self.get_pose_from_xyz_rpy(*self.locations[location], np.pi/2, np.pi/2, 0).pose # yaw could be anything but there is no way to define that, so we set it to 0
+        place_pose.position.z += self.sizes[location][2] + 0.1 # a whole object height above the box plus 10cm to avoid collision
+        self.reach_cartesian_pose(place_pose)
+
         self.reach_gripper_position(0.8)
         self.arm_group.detach_object(obj)
 
@@ -412,11 +432,8 @@ class ArmHandlingNode:
 if __name__ == '__main__':
     rospy.init_node('arm_handling_node')
     server = ArmHandlingNode()
-    # server.scan_area()
     server.set_the_scene()
-    arm_group = server.arm_group
-    arm_group.allow_replanning(True)
-
+    
     # server.scan_area(0.25)
 
     server.pick('tennis_ball3')
@@ -425,7 +442,5 @@ if __name__ == '__main__':
     # server.place('tennis_ball1', 'box_B')
     # server.pick('tennis_ball2')
     # server.place('tennis_ball2', 'box_B')
-
-    # server.send_gripper_command(5)
 
     rospy.spin()
