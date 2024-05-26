@@ -30,18 +30,14 @@ class ArmHandlingNode:
         
         gripper_joint_names = rospy.get_param(rospy.get_namespace() + "gripper_joint_names", [])
         self.gripper_joint_name = gripper_joint_names[0]
+
         self.scan_area_server = actionlib.SimpleActionServer('scan_area', ScanAreaAction, execute_cb=self.scan_area_cb, auto_start=False)
-        self.pick_and_place_server = actionlib.SimpleActionServer('pick_and_place', PickAndPlaceAction, self.pick_and_place, False)
+        self.pick_and_place_server = actionlib.SimpleActionServer('pick_and_place', PickAndPlaceAction, self.pick_and_place_cb, False)
         self.scan_area_server.start()
         self.pick_and_place_server.start()
-        self.grasp_subscriber = None
         
         rospy.wait_for_service(rospy.get_namespace() + 'compute_ik')
         self.compute_ik_service = rospy.ServiceProxy(rospy.get_namespace() + 'compute_ik', GetPositionIK)
-
-        send_gripper_command_full_name = '/my_gen3_lite/base/send_gripper_command'
-        rospy.wait_for_service(send_gripper_command_full_name)
-        self.gripper_command_interface = rospy.ServiceProxy(send_gripper_command_full_name, SendGripperCommand)
 
         self.locations = {
             'tennis_ball1': [0.1, 0.35, 0.025],
@@ -57,6 +53,27 @@ class ArmHandlingNode:
             'box_A': [0.2, 0.2, 0.175],
             'box_B': [0.2, 0.2, 0.175]
         }
+
+    def pick_and_place_cb(self, goal):
+        obj_coordinates = goal.object_to_pick
+        location_coordinates = goal.location_to_place
+        ball = self.create_tennis_ball(0, self.get_pose_from_xyz_rpy(obj_coordinates.x, obj_coordinates.y, obj_coordinates.z, 0, 0, 0).pose)
+        self.locations['ball'] = [obj_coordinates.x, obj_coordinates.y, obj_coordinates.z]
+        self.sizes['ball'] = [0.05, 0.05, 0.05]
+        box = self.create_box(1, self.get_pose_from_xyz_rpy(location_coordinates.x, location_coordinates.y, location_coordinates.z, 0, 0, 0).pose)
+        self.locations['box'] = [location_coordinates.x, location_coordinates.y, location_coordinates.z]
+        self.sizes['box'] = [0.2, 0.2, 0.175]
+        try:
+            self.pick(ball)
+            self.place(ball, box)
+        except Exception as e:
+            rospy.logerr("Failed to pick and place the object")
+            result.success = False
+            self.pick_and_place_server.set_aborted(result)
+            return
+        result = PickAndPlaceActionGoal()
+        result.success = True
+        self.pick_and_place_server.set_succeeded(result)
 
     def scan_area_cb(self, goal):
         scan_coverage_ratio = goal.scan_coverage_ratio
@@ -127,12 +144,6 @@ class ArmHandlingNode:
             return val
         except:
             return False
-        
-    def get_gripper_absolute_position(self, relative_position):
-        gripper_joint = self.robot.get_joint(self.gripper_joint_name)
-        gripper_max_absolute_pos = gripper_joint.max_bound()
-        gripper_min_absolute_pos = gripper_joint.min_bound()
-        return relative_position * (gripper_max_absolute_pos - gripper_min_absolute_pos) + gripper_min_absolute_pos
 
     def get_pose_from_xyz_rpy(self, x, y, z, ro, pi, ya):
         pose = PoseStamped()
@@ -198,15 +209,6 @@ class ArmHandlingNode:
         pose.orientation.z = new_orientation[2]
         pose.orientation.w = new_orientation[3]
         return pose
-    
-    def get_orientation_from_rpy(self, roll, pitch, yaw):
-        orientation = tf_trans.quaternion_from_euler(roll, pitch, yaw, axes='rxyz')
-        quaternion = Pose().orientation
-        quaternion.x = orientation[0]
-        quaternion.y = orientation[1]
-        quaternion.z = orientation[2]
-        quaternion.w = orientation[3]
-        return quaternion
 
     def scan_area(self, scan_coverage_ratio, feedback_cb = lambda msg: rospy.loginfo(msg)):
         feedback_cb("Starting scanning...")
@@ -248,88 +250,6 @@ class ArmHandlingNode:
         looking_down = self.apply_pitch(home_pose, np.pi/8)
         self.reach_cartesian_pose(looking_down, cartesian_path=True, constraints=constraints)
         feedback_cb("Reached center")
-
-    def pick_and_place(self, goal):
-        object_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, 0, 0)
-        place_pose = self.get_pose_from_xyz_rpy(goal.location.x, goal.location.y, goal.location.z + 0.1, 0, 0, 0)
-
-        collision_object = self.create_collision_object('cylinder', object_pose.pose, [1, 0.02])
-        # self.scene.add_object(collision_object)
-        self.scene.add_cylinder('cylinder', object_pose, 1, 0.03)
-        self.arm_group.attach_object('cylinder', link_name='end_effector_link', touch_links=self.robot.get_link_names("arm") + self.robot.get_link_names("gripper"))
-
-        grasp = moveit_msgs.msg.Grasp()
-        grasp.max_contact_force = 1
-
-        grasp.grasp_pose = self.get_pose_from_xyz_rpy(goal.object.x, goal.object.y, goal.object.z, 0, np.pi/2, 0)
-        grasp.grasp_pose.header.frame_id = "base_link"
-
-        grasp.pre_grasp_approach.direction.header.frame_id = "base_link"
-        grasp.pre_grasp_approach.direction.vector.z = -1.0
-        grasp.pre_grasp_approach.min_distance = 0.15
-        grasp.pre_grasp_approach.desired_distance = 0.2
-
-        grasp.pre_grasp_posture.header.frame_id = "end_effector_link"
-        grasp.pre_grasp_posture.joint_names = [self.gripper_joint_name]
-        grasp.pre_grasp_posture.points.append(JointTrajectoryPoint())
-        grasp.pre_grasp_posture.points[0].positions = [self.get_gripper_absolute_position(1)]
-        grasp.pre_grasp_posture.points[0].time_from_start = rospy.Duration(0.5)
-
-        grasp.grasp_posture.header.frame_id = "end_effector_link"
-        grasp.grasp_posture.joint_names = [self.gripper_joint_name]
-        grasp.grasp_posture.points.append(JointTrajectoryPoint())
-        grasp.grasp_posture.points[0].positions = [self.get_gripper_absolute_position(0.2)]
-        grasp.grasp_posture.points[0].effort = [1]
-        grasp.grasp_posture.points[0].time_from_start = rospy.Duration(0.4)
-
-        grasp.post_grasp_retreat.direction.header.frame_id = "base_link"
-        grasp.post_grasp_retreat.direction.vector.z = 1.0
-        grasp.post_grasp_retreat.min_distance = 0.15
-        grasp.post_grasp_retreat.desired_distance = 0.2
-
-        grasp.allowed_touch_objects = ['cylinder']
-
-        rospy.loginfo("Picking object...")
-        # self.arm_group.allow_replanning(True)
-        # self.arm_group.attach_object('cylinder')
-        self.arm_group.pick('cylinder', grasp)
-        rospy.loginfo("Object picked")
-
-        place = moveit_msgs.msg.PlaceLocation()
-        place.place_pose = place_pose
-        place.pre_place_approach.direction.header.frame_id = "base_link"
-        place.pre_place_approach.direction.vector.z = -1.0
-        place.pre_place_approach.min_distance = 0.15
-        place.pre_place_approach.desired_distance = 0.2
-        place.post_place_retreat.direction.header.frame_id = "base_link"
-        place.post_place_retreat.direction.vector.z = 1.0
-        place.post_place_retreat.min_distance = 0.15
-        place.post_place_retreat.desired_distance = 0.2
-
-        # rospy.loginfo("Placing object...")
-        # self.arm_group.place('ball', place)
-        # rospy.loginfo("Object placed")
-
-        self.arm_group.detach_object('cylinder')
-        self.scene.remove_world_object('cylinder')
-
-        self.pick_and_place_server.set_succeeded()
-
-    def create_collision_object(self, id, pose, dimensions):
-        object = CollisionObject()
-        object.id = id
-        object.header.frame_id = self.arm_group.get_planning_frame()
-
-        solid = SolidPrimitive()
-        solid.type = solid.CYLINDER
-        solid.dimensions = dimensions
-        object.primitives = [solid]
-
-        object_pose = pose
-
-        object.primitive_poses = [object_pose]
-        object.operation = object.ADD
-        return object
     
     def create_tennis_ball(self, id, pose):
         object = CollisionObject()
@@ -404,29 +324,6 @@ class ArmHandlingNode:
 
         self.reach_gripper_position(0.8)
         self.arm_group.detach_object(obj)
-
-    def send_gripper_command(self, value):
-        # Initialize the request
-        # Close the gripper
-        req = SendGripperCommandRequest()
-        finger = Finger()
-        finger.finger_identifier = 0
-        finger.value = value
-        req.input.gripper.finger.append(finger)
-        req.input.mode = GripperMode.GRIPPER_POSITION
-
-        rospy.loginfo("Sending the gripper command...")
-
-        # Call the service 
-        try:
-            self.gripper_command_interface(req)
-        except rospy.ServiceException:
-            rospy.logerr("Failed to call SendGripperCommand")
-            return False
-        else:
-            rospy.sleep(0.5)
-            return True
-
 
 
 if __name__ == '__main__':
